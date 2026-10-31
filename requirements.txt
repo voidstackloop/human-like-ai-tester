@@ -1,0 +1,3 @@
+# Human-Like AI Tester standard library dependencies (zero mandatory external dependencies needed!)
+# Optional browser automation support:
+# playwright>=1.40.0
