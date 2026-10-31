@@ -4,21 +4,76 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "human-like-ai-tester"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Universal AI testing skill and simulation engine that tests any application type like an authentic human being."
 readme = "README.md"
 requires-python = ">=3.9"
+license = { text = "MIT" }
 authors = [
     { name = "Human-Like AI Testing Team" }
 ]
+keywords = [
+    "testing",
+    "qa",
+    "usability",
+    "human-simulation",
+    "personas",
+    "typo-generation",
+    "robustness",
+    "accessibility",
+    "i18n",
+]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Testing",
     "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/voidstackloop/human-like-ai-tester"
+Repository = "https://github.com/voidstackloop/human-like-ai-tester"
+Issues = "https://github.com/voidstackloop/human-like-ai-tester/issues"
+Changelog = "https://github.com/voidstackloop/human-like-ai-tester/blob/master/CHANGELOG.md"
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.4",
+    "build>=1.0",
+    "twine>=5.0",
+    "coverage>=7.0",
 ]
 
 [project.scripts]
 human-tester = "human_tester.cli:main"
 
+# NOTE: the canonical version lives in human_tester/__init__.py (__version__).
+[tool.setuptools.dynamic]
+version = { attr = "human_tester.__version__" }
+
 [tool.setuptools.packages.find]
 include = ["human_tester*"]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+
+[tool.ruff.lint]
+# Conservative gate: real bugs only (undefined names, unused imports, syntax).
+select = ["F", "E9"]
+
+[tool.coverage.run]
+source = ["human_tester"]
+omit = ["*/tests/*", "*/mock_target_app.py"]
+
+[tool.coverage.report]
+show_missing = true

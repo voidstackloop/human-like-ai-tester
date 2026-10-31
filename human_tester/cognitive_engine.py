@@ -13,6 +13,7 @@ class CognitiveEngine:
         self.persona = persona
         self.frustration_score = 0.0  # 0.0 (calm) to 100.0 (furious / task abandoned)
         self.action_history: List[Dict] = []
+        self.retry_count = 0  # Successful-error-recovery learning tracker
 
     def get_frustration_level(self) -> str:
         """Categorize current emotional frustration."""
@@ -39,6 +40,10 @@ class CognitiveEngine:
             # Thorough reading
             seconds = (word_count / 180.0) * 60.0
 
+        # Learning effect: re-reads after an error go faster.
+        if self.retry_count:
+            seconds *= max(0.5, 1.0 - 0.15 * self.retry_count)
+
         # Add random human variance +/- 25%
         jitter = random.uniform(0.75, 1.25)
         return round(max(0.2, seconds * jitter), 2)
@@ -48,6 +53,8 @@ class CognitiveEngine:
         # Standard assumption: 5 characters per word
         words = max(1.0, text_length / 5.0)
         base_seconds = (words / max(10, self.persona.wpm)) * 60.0
+        if self.retry_count:
+            base_seconds *= max(0.5, 1.0 - 0.15 * self.retry_count)
         jitter = random.uniform(0.85, 1.30)
         return round(base_seconds * jitter, 2)
 
@@ -126,3 +133,63 @@ class CognitiveEngine:
             return "User sighs, attempts 1 fix, but is getting annoyed."
         else:
             return "User calmly reads the error and attempts correction."
+
+    # -- Enriched cognitive vectors ----------------------------------------
+
+    def simulate_interruption(self) -> Dict:
+        """Simulate a real-life interruption (notification, call, colleague).
+
+        Returns pause duration plus the re-orientation re-read cost when the
+        user returns and must re-scan the screen.
+        """
+        pause = round(random.uniform(8.0, 30.0), 1)
+        reread = self.calculate_reading_delay_seconds(40)
+        self.record_event(
+            "INTERRUPTION",
+            f"User distracted for {pause}s, needed {reread}s to re-orient",
+            penalty=5.0,
+        )
+        return {"pause_seconds": pause, "reorient_seconds": reread}
+
+    def attention_decay(self, step_index: int, total_steps: int) -> float:
+        """Miss probability multiplier that grows as multi-step flows drag on.
+
+        Step 1 returns ~1.0x; later steps scale up to ~2.5x for fatigued
+        personas, modelling checkbox-skipping and field-blindness.
+        """
+        if total_steps <= 1:
+            return 1.0
+        progress = min(1.0, max(0.0, step_index / max(1, total_steps - 1)))
+        fatigue = 1.0 + progress * 1.5
+        if "fatigued" in self.persona.tags or "impatient" in self.persona.tags:
+            fatigue *= 1.2
+        return round(min(3.0, fatigue), 2)
+
+    def second_attempt_speedup(self) -> Dict:
+        """Model learning: after one failed attempt the user retries faster
+        and with slightly reduced frustration (they now know the flow)."""
+        self.retry_count += 1
+        self.frustration_score = max(0.0, self.frustration_score - 10.0)
+        self.record_event(
+            "RETRY_LEARNING",
+            f"Attempt #{self.retry_count + 1}: user moves ~15% faster, frustration eases",
+            penalty=-10.0,
+        )
+        return {"retry_count": self.retry_count, "speedup": "15%"}
+
+    def scroll_fatigue_check(self, requires_scroll: bool) -> bool:
+        """Return True when the persona misses content requiring a scroll."""
+        if not requires_scroll:
+            return False
+        missed = random.random() < self.persona.miss_below_fold_rate
+        if missed:
+            self.record_event(
+                "BELOW_FOLD_MISS",
+                "User never scrolled; required checkbox/button below the fold missed",
+                penalty=8.0,
+            )
+        return missed
+
+    def record_success(self, relief: float = 12.0) -> Dict:
+        """Log a successful step; small frustration relief keeps long flows honest."""
+        return self.record_event("STEP_SUCCESS", "Step completed without friction", penalty=-abs(relief))

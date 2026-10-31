@@ -4,7 +4,7 @@ import time
 import urllib.request
 import urllib.parse
 import urllib.error
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 from ..personas import Persona
 from ..cognitive_engine import CognitiveEngine
 from ..typo_engine import TypoEngine
@@ -181,3 +181,63 @@ class WebTester:
             )
 
         return {"responses": responses, "idempotent": responses != [200, 200]}
+
+    # -- Enriched web vectors (heuristic, no extra network needed) --------------
+
+    def audit_validation_state_preservation(
+        self, fields_before: Dict[str, str], fields_after_error: Dict[str, str]
+    ) -> Dict:
+        """Compare field values before/after a validation error; flag wiped inputs.
+
+        Args:
+            fields_before: field values the user typed.
+            fields_after_error: values still present after the error re-render.
+        """
+        wiped = [k for k, v in fields_before.items() if v and not fields_after_error.get(k)]
+        if wiped:
+            self.cognitive.handle_validation_error(cleared_inputs=True)
+            self.reporter.sync_frustration(self.cognitive.frustration_score)
+            self.reporter.add_finding(
+                severity="CRITICAL",
+                category="Error Recovery",
+                title=f"Validation error wiped {len(wiped)} field(s): {', '.join(wiped)}",
+                description="User must retype everything because one field failed; top abandonment driver.",
+                simulated_action=f"Failed 1 field in a {len(fields_before)}-field form",
+                system_reaction=f"Re-render cleared: {wiped}",
+                recommendation="Preserve all valid field values across validation re-renders; never clear passwords silently.",
+            )
+        return {"wiped_fields": wiped, "preserved": not wiped}
+
+    def audit_back_button_state(self, fields_before_back: Dict[str, str], fields_after_back: Dict[str, str]) -> Dict:
+        """Verify the browser Back button does not destroy in-progress input."""
+        lost = [k for k, v in fields_before_back.items() if v and not fields_after_back.get(k)]
+        if lost:
+            self.reporter.add_finding(
+                severity="FRICTION",
+                category="Navigation Resilience",
+                title=f"Back-button navigation lost {len(lost)} field(s): {', '.join(lost)}",
+                description=f"{self.persona.name} relies on Back; losing input there feels like data theft.",
+                simulated_action="Pressed browser Back, then Forward to resume",
+                system_reaction=f"Lost inputs: {lost}",
+                recommendation="Persist draft form state (history state / sessionStorage) across Back/Forward.",
+            )
+        return {"lost_fields": lost, "preserved": not lost}
+
+    def audit_error_visibility(self, error_position: str, submit_position: str) -> Dict:
+        """Flag error banners the user cannot see from the submit button.
+
+        Positions: 'top', 'inline', 'bottom', 'toast'.
+        """
+        error_position = error_position.strip().lower()
+        hidden = error_position == "top" and submit_position.strip().lower() == "bottom"
+        if hidden:
+            self.reporter.add_finding(
+                severity="FRICTION",
+                category="Visual Clarity",
+                title="Error banner hidden off-screen from the submit button",
+                description="User sits at the bottom submit; the top banner may as well not exist.",
+                simulated_action="Submitted an invalid form while scrolled to the bottom",
+                system_reaction="Error rendered at page top, viewport did not move",
+                recommendation="Auto-scroll to the first invalid field and repeat errors inline.",
+            )
+        return {"hidden": hidden}

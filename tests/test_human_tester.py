@@ -1,11 +1,11 @@
 """Unit tests for the Universal Human-Like AI Tester."""
 
 import unittest
-from human_tester.personas import get_persona, list_personas, RUSHED_COMMUTER, TECH_NOVICE
+from human_tester.personas import get_persona, list_personas, RUSHED_COMMUTER
 from human_tester.typo_engine import TypoEngine
 from human_tester.cognitive_engine import CognitiveEngine
 from human_tester.reporter import AuditReporter
-from human_tester.paradigms import CLITester, ChatTester, FileTester
+from human_tester.paradigms import ChatTester, FileTester
 
 
 class TestHumanTesterCore(unittest.TestCase):

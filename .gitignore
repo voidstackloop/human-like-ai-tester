@@ -1,6 +1,38 @@
+# Python bytecode & caches
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Distributions & builds
 *.egg-info/
 dist/
 build/
-.pytest_cache/
+*.egg
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Editors & OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local reports & generated mess
+audit.md
+report.md
+*.audit.md
+messy_human_data.csv

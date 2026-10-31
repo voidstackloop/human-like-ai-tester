@@ -1,7 +1,8 @@
 """Realistic Human Typo & Keystroke Slip Generator."""
 
 import random
-from typing import Optional
+import re
+from typing import Optional, Union
 
 # Standard US QWERTY physical keyboard adjacency map
 QWERTY_ADJACENT = {
@@ -50,6 +51,72 @@ COMMON_DOMAIN_TYPOS = {
     "outlook.com": ["outlok.com", "outloo.com", "outlook.con"],
     "hotmail.com": ["hotmial.com", "hotmai.com", "hotmail.con"],
     "company.com": ["copmany.com", "compnay.com"],
+}
+
+# Mobile autocorrect wrong-word substitutions (intended -> what autocorrect produced).
+AUTOCORRECT_SWAPS = {
+    "meeting": ["melting", "misting"],
+    "definately": ["defiantly"],
+    "definitely": ["defiantly"],
+    "duck": ["luck", "tuck"],
+    "well": ["we'll"],
+    "ill": ["I'll"],
+    "cant": ["can't", "cant"],
+    "its": ["it's"],
+    "your": ["you're"],
+    "there": ["their", "they're"],
+    "def": ["deg", "dec"],
+    "test": ["text", "tent"],
+    "code": ["coke", "cove"],
+    "ship": ["shop", "sheep"],
+    "demo": ["demon"],
+    "lets": ["let's"],
+    "dont": ["don't", "font"],
+}
+
+# Voice-transcription homophone confusions (spoken -> transcribed).
+VOICE_HOMOPHONES = {
+    "their": ["there", "they're"],
+    "there": ["their", "they're"],
+    "they're": ["their", "there"],
+    "to": ["too", "two"],
+    "too": ["to", "two"],
+    "two": ["to", "too"],
+    "your": ["you're"],
+    "you're": ["your"],
+    "its": ["it's"],
+    "it's": ["its"],
+    "for": ["four", "fore"],
+    "four": ["for"],
+    "by": ["buy", "bye"],
+    "buy": ["by", "bye"],
+    "right": ["write", "rite"],
+    "write": ["right"],
+    "here": ["hear"],
+    "hear": ["here"],
+    "new": ["knew"],
+    "know": ["no"],
+    "no": ["know"],
+}
+
+# ESL phonetic misspellings (correct -> common phonetic variant).
+PHONETIC_SPELLINGS = {
+    "through": ["tru", "troo"],
+    "because": ["becouse", "becase"],
+    "address": ["adress"],
+    "phone": ["fone"],
+    "enough": ["enouf"],
+    "people": ["pipol"],
+    "receipt": ["receit", "reciept"],
+    "separate": ["seperate"],
+    "definitely": ["definetly"],
+    "tomorrow": ["tommorow"],
+    "password": ["pasword"],
+    "message": ["mesage"],
+    "please": ["plese", "pls"],
+    "thanks": ["thx", "thanx"],
+    "really": ["realy"],
+    "which": ["wich"],
 }
 
 
@@ -167,7 +234,7 @@ class TypoEngine:
         ]
         return random.choice(styles)
 
-    def format_currency_human_style(self, amount: float or int) -> str:
+    def format_currency_human_style(self, amount: Union[float, int]) -> str:
         """Format currency how users typically enter it instead of raw float."""
         val = float(amount)
         styles = [
@@ -189,3 +256,108 @@ class TypoEngine:
             f"{text}\t",         # Trailing tab
         ]
         return random.choice(patterns)
+
+    # -- Enriched human-input vectors -------------------------------------
+
+    def introduce_autocorrect_fail(self, text: str) -> str:
+        """Simulate a mobile autocorrect wrong-word substitution.
+
+        Swaps at most one known word for an autocorrect artifact; returns the
+        original text unchanged when no known word is present.
+        """
+        words = text.split(" ")
+        candidates = [i for i, w in enumerate(words) if w.lower().strip(".,!?") in AUTOCORRECT_SWAPS]
+        if not candidates:
+            return text
+        idx = random.choice(candidates)
+        core = words[idx].lower().strip(".,!?")
+        words[idx] = random.choice(AUTOCORRECT_SWAPS[core])
+        return " ".join(words)
+
+    def introduce_voice_transcription_errors(self, text: str) -> str:
+        """Simulate voice-dictation artifacts: homophone swaps, dropped
+        capitalization and punctuation, occasional filler words."""
+        words = text.split(" ")
+        out = []
+        for w in words:
+            core = w.lower().strip(".,!?")
+            if core in VOICE_HOMOPHONES and random.random() < 0.6:
+                out.append(random.choice(VOICE_HOMOPHONES[core]))
+            else:
+                out.append(core)
+        result = " ".join(out)
+        if random.random() < 0.35:
+            fillers = ["um", "uh", "like"]
+            pos = random.randint(0, len(out))
+            parts = result.split(" ")
+            parts.insert(min(pos, len(parts)), random.choice(fillers))
+            result = " ".join(parts)
+        return result
+
+    def introduce_phonetic_spelling(self, text: str) -> str:
+        """Simulate ESL phonetic spelling for known words (adress, fone...)."""
+        def _swap(match: "re.Match") -> str:
+            word = match.group(0)
+            variant = random.choice(PHONETIC_SPELLINGS[word.lower()])
+            return variant.capitalize() if word[0].isupper() else variant
+
+        pattern = re.compile(
+            r"\b(" + "|".join(re.escape(k) for k in PHONETIC_SPELLINGS) + r")\b",
+            re.IGNORECASE,
+        )
+        return pattern.sub(_swap, text)
+
+    def corrupt_password_paste(self, password: str) -> str:
+        """Simulate password-manager / copy-paste mishaps: trailing space,
+        truncated last char (bad double-click select), or caps-lock inversion."""
+        choices = ["trailing_space", "truncated", "caps_invert", "clean"]
+        pick = random.choice(choices)
+        if pick == "trailing_space":
+            return password + " "
+        elif pick == "truncated" and len(password) > 1:
+            return password[:-1]
+        elif pick == "caps_invert":
+            return password.swapcase()
+        return password
+
+    def corrupt_url_bar(self, url: str) -> str:
+        """Simulate human address-bar input: missing scheme, doubled dots,
+        stray spaces, or protocol typos like htp://."""
+        variants = [
+            url.replace("https://", "").replace("http://", ""),
+            url.replace("https://", "htp://").replace("http://", "htp://"),
+            url.replace(".", "..", 1),
+            f"{url} ",
+            url.replace("https://", "https:/"),
+        ]
+        return random.choice(variants)
+
+    def format_date_human_style(self, year: int, month: int, day: int) -> str:
+        """Render one calendar date the way humans in different locales type it,
+        including the ambiguous MM/DD vs DD/MM trap."""
+        month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        name = month_names[max(1, min(12, month)) - 1]
+        yy = f"{year % 100:02d}"
+        styles = [
+            f"{month:02d}/{day:02d}/{year}",      # US MM/DD/YYYY
+            f"{day:02d}/{month:02d}/{year}",      # EU DD/MM/YYYY (ambiguous!)
+            f"{year}-{month:02d}-{day:02d}",      # ISO
+            f"{day:02d}-{month:02d}-{year}",      # EU dashes
+            f"{name} {day}, {year}",              # Natural language
+            f"{day} {name} {year}",               # Natural EU order
+            f"{month}/{day}/{yy}",                # Lazy 2-digit year
+        ]
+        return random.choice(styles)
+
+    def format_credit_card_human_style(self, digits: str) -> str:
+        """Render card digits with human spacing/dash habits."""
+        clean = "".join(ch for ch in digits if ch.isdigit())
+        groups = [clean[i:i + 4] for i in range(0, len(clean), 4)]
+        styles = [
+            " ".join(groups),
+            "-".join(groups),
+            clean,
+            " ".join(groups) + " ",
+        ]
+        return random.choice(styles)

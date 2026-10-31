@@ -1,7 +1,7 @@
 """User Persona Catalog for Authentic Human Simulation."""
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 
 @dataclass
@@ -127,21 +127,106 @@ CURIOUS_EXPLORER = Persona(
     tags=["exploratory", "unicode", "edge-case", "resizer"]
 )
 
+ACCESSIBILITY_NAVIGATOR = Persona(
+    id="accessibility_navigator",
+    name="Priya (Accessibility Navigator)",
+    archetype="Keyboard-Only / Screen-Reader User",
+    description="Navigates by Tab/Shift+Tab and screen reader alone. Depends on visible focus rings, real labels, logical heading order, and skippable nav. Trapped by modals without focus traps, icon-only buttons, and session timeouts with no warning.",
+    wpm=35,
+    typo_rate=0.06,
+    patience_seconds=5.0,
+    reading_depth="thorough",
+    rage_click_probability=0.10,
+    miss_below_fold_rate=0.60,
+    back_button_preference=0.30,
+    format_error_rate=0.15,
+    unintended_tab_drop_rate=0.08,
+    tags=["desktop", "keyboard-nav", "screen-reader", "accessibility"]
+)
+
+NON_NATIVE_SPEAKER = Persona(
+    id="non_native_speaker",
+    name="Mateo (Non-Native Speaker)",
+    archetype="ESL User with Locale Confusion",
+    description="Reads English literally and translates mentally. Trips on idioms ('a chip off the old block'), mixes DD/MM vs MM/DD dates and comma-vs-dot decimals, and spells phonetically (adress, becouse). Patient but misreads terse error codes.",
+    wpm=30,
+    typo_rate=0.20,
+    patience_seconds=4.5,
+    reading_depth="selective",
+    rage_click_probability=0.20,
+    miss_below_fold_rate=0.40,
+    back_button_preference=0.50,
+    format_error_rate=0.55,
+    unintended_tab_drop_rate=0.12,
+    tags=["desktop", "mobile", "i18n", "locale-confusion", "phonetic-spelling"]
+)
+
+IMPATIENT_TEEN = Persona(
+    id="impatient_teen",
+    name="Zoe (Impatient Teen)",
+    archetype="Mobile-Native Autocorrect Relier",
+    description="Thumb-types fast on mobile, trusts autocorrect blindly, screenshots instead of reading, and back-swipes rather than using in-app nav. Zero patience: abandons any flow that stalls, asks for login, or shows a wall of text.",
+    wpm=70,
+    typo_rate=0.22,
+    patience_seconds=1.0,
+    reading_depth="skims",
+    rage_click_probability=0.85,
+    miss_below_fold_rate=0.50,
+    back_button_preference=0.70,
+    format_error_rate=0.30,
+    unintended_tab_drop_rate=0.35,
+    tags=["mobile", "impatient", "autocorrect", "rage-clicker", "abandonment"]
+)
+
 PERSONA_REGISTRY: Dict[str, Persona] = {
     RUSHED_COMMUTER.id: RUSHED_COMMUTER,
     TECH_NOVICE.id: TECH_NOVICE,
     CYNICAL_POWER_USER.id: CYNICAL_POWER_USER,
     FATIGUED_WORKER.id: FATIGUED_WORKER,
     CURIOUS_EXPLORER.id: CURIOUS_EXPLORER,
+    ACCESSIBILITY_NAVIGATOR.id: ACCESSIBILITY_NAVIGATOR,
+    NON_NATIVE_SPEAKER.id: NON_NATIVE_SPEAKER,
+    IMPATIENT_TEEN.id: IMPATIENT_TEEN,
+}
+
+# Recommended personas per paradigm (ids into PERSONA_REGISTRY).
+PARADIGM_PERSONA_MAP: Dict[str, List[str]] = {
+    "web": ["rushed_commuter", "tech_novice", "accessibility_navigator"],
+    "mobile": ["rushed_commuter", "impatient_teen", "non_native_speaker"],
+    "desktop": ["tech_novice", "accessibility_navigator", "cynical_power_user"],
+    "cli": ["cynical_power_user", "fatigued_worker", "non_native_speaker"],
+    "api": ["cynical_power_user", "fatigued_worker", "curious_explorer"],
+    "chat": ["tech_novice", "non_native_speaker", "impatient_teen"],
+    "file": ["fatigued_worker", "non_native_speaker", "curious_explorer"],
 }
 
 
 def get_persona(persona_id: str) -> Persona:
     """Retrieve persona by key, default to RUSHED_COMMUTER."""
-    clean_id = persona_id.lower().replace("-", "_")
+    clean_id = persona_id.strip().lower().replace("-", "_").replace(" ", "_")
     return PERSONA_REGISTRY.get(clean_id, RUSHED_COMMUTER)
 
 
 def list_personas() -> List[Persona]:
     """Return all available persona definitions."""
     return list(PERSONA_REGISTRY.values())
+
+
+def personas_for_paradigm(paradigm: str) -> List[Persona]:
+    """Return recommended personas for a paradigm key (web, mobile, desktop,
+    cli, api, chat, file). Falls back to the full catalog for unknown keys."""
+    key = paradigm.strip().lower()
+    ids = PARADIGM_PERSONA_MAP.get(key)
+    if not ids:
+        return list_personas()
+    return [PERSONA_REGISTRY[i] for i in ids if i in PERSONA_REGISTRY]
+
+
+def describe_persona(persona_id: str) -> str:
+    """One-line human summary of a persona for CLI output and prompts."""
+    p = get_persona(persona_id)
+    return (
+        f"{p.name} [{p.archetype}] — {p.wpm} WPM, "
+        f"{int(p.typo_rate * 100)}% typos, {p.patience_seconds}s patience, "
+        f"reads: {p.reading_depth}"
+    )

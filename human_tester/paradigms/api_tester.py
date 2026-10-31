@@ -3,7 +3,7 @@
 import json
 import urllib.request
 import urllib.error
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 from ..personas import Persona
 from ..reporter import AuditReporter
 
@@ -81,7 +81,7 @@ class APITester:
                 category="API Security & Auth",
                 title="Internal Server Error on Missing 'Bearer' Prefix",
                 description="Header 'Authorization: token123' caused a crash instead of a 401 Unauthorized.",
-                simulated_action="Authorization header without Bearer prefix",
+                simulated_action="Authorization header without Bearer [REDACTED]",
                 system_reaction=f"HTTP {res['status']}",
                 recommendation="Handle missing auth schema gracefully with 401 and WWW-Authenticate header.",
             )
@@ -129,3 +129,106 @@ class APITester:
                 recommendation="Configure schema validator to ignore or strip extra fields unless strict validation is required.",
             )
         return res
+
+    # -- Enriched API vectors ------------------------------------------------
+
+    def test_boolean_as_string(self, endpoint: str, field_name: str = "active") -> Dict:
+        """Humans send {"active": "true"} (string) instead of {"active": true}."""
+        payload = json.dumps({field_name: "true"}).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        res = self._make_request(endpoint, method="POST", headers=headers, data=payload)
+        if res["status"] >= 500:
+            self.reporter.add_finding(
+                severity="CRITICAL",
+                category="API Robustness",
+                title=f"Server Crashed (500) on String Boolean Field '{field_name}'",
+                description="Sending '\"true\"' instead of true crashed the server instead of coercing or 400ing.",
+                simulated_action=f"POST {endpoint} with {{'{field_name}': 'true'}}",
+                system_reaction=f"HTTP {res['status']}: {res['body'][:120]}",
+                recommendation="Coerce 'true'/'false' strings to booleans or return a precise 400.",
+            )
+        return res
+
+    def test_pagination_misuse(self, endpoint: str) -> Dict[str, Any]:
+        """Humans guess page=0, page='two', or absurd limits."""
+        variants = {
+            "page_zero": f"{endpoint}?page=0&limit=10",
+            "page_string": f"{endpoint}?page=two&limit=10",
+            "huge_limit": f"{endpoint}?page=1&limit=999999",
+        }
+        results = {}
+        for name, url in variants.items():
+            res = self._make_request(url)
+            results[name] = res["status"]
+            if res["status"] >= 500:
+                self.reporter.add_finding(
+                    severity="FRICTION",
+                    category="API Resilience",
+                    title=f"Pagination variant '{name}' caused HTTP {res['status']}",
+                    description=f"Guessing '{url}' crashed the server instead of normalizing.",
+                    simulated_action=f"GET {url}",
+                    system_reaction=f"HTTP {res['status']}: {res['body'][:120]}",
+                    recommendation="Clamp/normalize page + limit; document 0- vs 1-based indexing.",
+                )
+        return results
+
+    def test_graphql_typo_field(self, graphql_endpoint: str, typo_field: str = "usres") -> Dict:
+        """Typo a GraphQL field; the error should hint, not leak a stack trace."""
+        payload = json.dumps({"query": f"{{ {typo_field} {{ id }} }}"}).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        res = self._make_request(graphql_endpoint, method="POST", headers=headers, data=payload)
+        body_lower = res["body"].lower()
+        leaks_trace = any(s in body_lower for s in ["traceback", "stack trace", "nullpointer", "segmentation"])
+        has_hint = "did you mean" in body_lower or "suggest" in body_lower or "cannot query field" in body_lower
+        if leaks_trace or res["status"] >= 500:
+            self.reporter.add_finding(
+                severity="CRITICAL",
+                category="API Errors",
+                title="GraphQL typo leaked a server-side trace",
+                description="A one-letter field typo exposed internals instead of a guided error.",
+                simulated_action=f"POST {graphql_endpoint} query {{ {typo_field} }}",
+                system_reaction=f"HTTP {res['status']}: {res['body'][:150]}",
+                recommendation="Sanitize GraphQL errors; suggest nearest field names ('Did you mean users?').",
+            )
+        elif not has_hint and res["status"] == 200:
+            self.reporter.add_finding(
+                severity="MODERATE",
+                category="API Errors",
+                title="GraphQL typo error lacks a corrective hint",
+                description="Valid error shape, but no guidance toward the intended field.",
+                simulated_action=f"POST {graphql_endpoint} query {{ {typo_field} }}",
+                system_reaction=res["body"][:150],
+                recommendation="Add 'Did you mean …?' suggestions to GraphQL validation errors.",
+            )
+        return {"status": res["status"], "has_hint": has_hint, "leaks_trace": leaks_trace}
+
+    def test_webhook_retry(self, endpoint: str, event_id: str = "evt_human_001") -> Dict:
+        """Deliver the same webhook event twice; side effects must not duplicate."""
+        headers = {"Content-Type": "application/json", "X-Event-Id": event_id}
+        payload = json.dumps({"id": event_id, "type": "order.created", "data": {"order_id": 7}}).encode("utf-8")
+        first = self._make_request(endpoint, method="POST", headers=headers, data=payload)
+        second = self._make_request(endpoint, method="POST", headers=headers, data=payload)
+
+        def _rid(res: Dict) -> Optional[str]:
+            try:
+                data = json.loads(res["body"] or "{}")
+                for key in ("id", "order_id", "event_id", "receipt_id"):
+                    if key in data:
+                        return str(data[key])
+            except (ValueError, TypeError):
+                pass
+            return None
+
+        id1, id2 = _rid(first), _rid(second)
+        if first["status"] in (200, 201) and second["status"] in (200, 201):
+            if id1 and id2 and id1 != id2:
+                self.reporter.add_finding(
+                    severity="CRITICAL",
+                    category="Webhook Idempotency",
+                    title="Webhook retry created a duplicate side effect",
+                    description=f"Same event {event_id} applied twice (ids {id1} vs {id2}): double email/charge risk.",
+                    simulated_action=f"POST {endpoint} twice with X-Event-Id: {event_id}",
+                    system_reaction=f"Two distinct resources: {id1} vs {id2}",
+                    recommendation="Dedupe on event ID (idempotency keys) within a 24h window.",
+                )
+        return {"first": first["status"], "second": second["status"], "ids": [id1, id2]}

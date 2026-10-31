@@ -4,8 +4,6 @@ import http.server
 import urllib.parse
 import time
 import json
-import threading
-from typing import Optional
 
 
 class MockAppHandler(http.server.BaseHTTPRequestHandler):

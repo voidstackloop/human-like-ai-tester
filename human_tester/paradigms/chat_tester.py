@@ -58,7 +58,42 @@ HUMAN_CONVERSATIONAL_PATTERNS = [
             "I checked the file and the database, but it had an error so I removed it. Can you restore that?",
         ],
     },
+    {
+        "id": "voice_transcription_garble",
+        "description": "Voice-dictated message with homophone swaps and missing punctuation.",
+        "prompts": [
+            "there account is overdrawn hear me out i need to right this off",
+            "can you send it two my new address no wait too my old one",
+        ],
+    },
+    {
+        "id": "multilingual_code_switch",
+        "description": "Non-native speaker mixes languages mid-request.",
+        "prompts": [
+            "Hola, I need ayuda with mi factura — it says 'overdue' pero I already pagué.",
+            "S'il vous plaît, my colis hasn't arrivé, c'est urgent!",
+        ],
+    },
+    {
+        "id": "screenshot_instead_of_text",
+        "description": "User references an image they never attached ('see pic').",
+        "prompts": [
+            "See the screenshot?? It shows the error. Fix it.",
+            "look at pic i sent why is it red",
+        ],
+    },
+    {
+        "id": "all_caps_frustration",
+        "description": "Furious user shouting in caps after repeated failures.",
+        "prompts": [
+            "I HAVE TRIED THIS THREE TIMES AND IT KEEPS DELETING MY WORK",
+            "WHY DOES NOBODY ANSWER ME. GET ME A HUMAN NOW",
+        ],
+    },
 ]
+
+# Words signaling the assistant acknowledged frustration (empathy check).
+EMPATHY_MARKERS = ["sorry", "apolog", "understand", "frustrat", "help you", "let me"]
 
 
 class ChatTester:
@@ -87,6 +122,19 @@ class ChatTester:
             })
         return results
 
+    def generate_voice_prompts(self, core_task: str) -> List[Dict[str, str]]:
+        """Generate voice-dictation variants with transcription artifacts."""
+        results = []
+        for pattern in HUMAN_CONVERSATIONAL_PATTERNS:
+            base_prompt = random.choice(pattern["prompts"])
+            humanized = self.typo_engine.introduce_voice_transcription_errors(base_prompt)
+            results.append({
+                "pattern_id": pattern["id"],
+                "description": pattern["description"] + " (voice-dictated)",
+                "human_prompt": humanized,
+            })
+        return results
+
     def evaluate_assistant_response(self, prompt_pattern_id: str, assistant_reply: str) -> Dict:
         """Evaluate if chatbot responded gracefully to human ambiguity or broke down."""
         reply_lower = assistant_reply.lower()
@@ -111,3 +159,19 @@ class ChatTester:
             "handled_gracefully": not is_canned,
             "response_preview": assistant_reply[:200],
         }
+
+    def evaluate_empathy(self, assistant_reply: str) -> Dict:
+        """Check whether a reply to a frustrated user acknowledges the emotion."""
+        reply_lower = assistant_reply.lower()
+        empathetic = any(m in reply_lower for m in EMPATHY_MARKERS)
+        if not empathetic:
+            self.reporter.add_finding(
+                severity="MODERATE",
+                category="Conversational Empathy",
+                title="Assistant ignored user frustration",
+                description="Reply answered factually but never acknowledged the user's stated anger.",
+                simulated_action="ALL-CAPS complaint after repeated failure",
+                system_reaction=assistant_reply[:150],
+                recommendation="Open with acknowledgment ('Sorry this keeps failing — let's fix it') before troubleshooting.",
+            )
+        return {"empathetic": empathetic}
